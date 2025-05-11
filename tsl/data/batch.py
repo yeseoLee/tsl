@@ -1,5 +1,5 @@
 from typing import Callable
-from typing import (Optional, Any, Union, List, Mapping)
+from typing import Optional, Any, Union, List, Mapping
 
 import torch
 from torch import Tensor
@@ -25,15 +25,14 @@ def _collate_scaler_modules(batch: List[Mapping[str, Any]]):
 
 def static_graph_collate(batch: List[Data], cls: Optional[type] = None) -> Data:
     # collate subroutine
-    def _collate(items: List[Union[Tensor, Mapping[str, Any]]], key: str,
-                 pattern: str):
-        if key == 'transform':
+    def _collate(items: List[Union[Tensor, Mapping[str, Any]]], key: str, pattern: str):
+        if key == "transform":
             return _collate_scaler_modules(items), None
         # if key.startswith('edge_'):
         #     return items[0]
         if pattern is not None:
-            if 's' in pattern:
-                return default_collate(items), 'b ' + pattern
+            if "s" in pattern:
+                return default_collate(items), "b " + pattern
             return items[0], pattern
         return default_collate(items), None
 
@@ -43,7 +42,7 @@ def static_graph_collate(batch: List[Data], cls: Optional[type] = None) -> Data:
         cls = elem.__class__
     out = cls()
     out = out.stores_as(elem)
-    for k in elem.keys:
+    for k in elem.keys():
         pattern = elem.pattern.get(k)
         out[k], pattern = _collate([b[k] for b in batch], k, pattern)
         if pattern is not None:
@@ -57,11 +56,11 @@ class Batch(Data):
     @classmethod
     def from_data_list(cls, data_list: List[Data]):
         r"""Constructs a :class:`~tsl.data.Batch` object from a Python list of
-         :class:`~tsl.data.Data`, representing temporal signals on static
-         graphs."""
+        :class:`~tsl.data.Data`, representing temporal signals on static
+        graphs."""
 
         batch = cls._collate_fn(data_list, cls)
 
-        batch.__dict__['batch_size'] = len(data_list)
+        batch.__dict__["batch_size"] = len(data_list)
 
         return batch
