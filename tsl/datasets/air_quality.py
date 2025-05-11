@@ -1,14 +1,17 @@
 import os
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence, List
 
 import numpy as np
 import pandas as pd
 
-from tsl.data.datamodule.splitters import Splitter, disjoint_months
-from tsl.data.synch_mode import HORIZON
-from tsl.datasets.prototypes import DatetimeDataset
-from tsl.datasets.prototypes.mixin import MissingValuesMixin
+from tsl.data.datamodule.splitters import disjoint_months, Splitter
+from tsl.ops.dataframe import compute_mean
+from tsl.ops.similarities import gaussian_kernel
+from tsl.ops.similarities import geographical_distance
 from tsl.utils import download_url, extract_zip
+from .prototypes import PandasDataset
+from .prototypes.mixin import MissingValuesMixin
+from ..data.utils import HORIZON
 
 
 def infer_mask(df, infer_from='next'):
@@ -31,8 +34,8 @@ def infer_mask(df, infer_from='next'):
     elif infer_from == 'next':
         offset = 1
     else:
-        raise ValueError('`infer_from` can only be one of {}'.format(
-            ['previous', 'next']))
+        raise ValueError('`infer_from` can only be one of {}'
+                         .format(['previous', 'next']))
     months = sorted(set(zip(mask.index.year, mask.index.month)))
     length = len(months)
     for i in range(length):
@@ -52,8 +55,7 @@ def infer_mask(df, infer_from='next'):
 
 class AirQualitySplitter(Splitter):
 
-    def __init__(self,
-                 val_len: int = None,
+    def __init__(self, val_len: int = None,
                  test_months: Sequence = (3, 6, 9, 12)):
         super(AirQualitySplitter, self).__init__()
         self._val_len = val_len
@@ -75,47 +77,30 @@ class AirQualitySplitter(Splitter):
         if len(end_month_idxs) < len(self.test_months):
             end_month_idxs = np.insert(end_month_idxs, 0, test_idxs[0])
         # expand month indices
-        month_val_idxs = [
-            np.arange(v_idx - val_len, v_idx) - dataset.window
-            for v_idx in end_month_idxs
-        ]
+        month_val_idxs = [np.arange(v_idx - val_len, v_idx) - dataset.window
+                          for v_idx in end_month_idxs]
         val_idxs = np.concatenate(month_val_idxs) % len(dataset)
         # remove overlapping indices from training set
-        ovl_idxs, _ = dataset.overlapping_indices(nontest_idxs,
-                                                  val_idxs,
+        ovl_idxs, _ = dataset.overlapping_indices(nontest_idxs, val_idxs,
                                                   synch_mode=HORIZON,
                                                   as_mask=True)
         train_idxs = nontest_idxs[~ovl_idxs]
         self.set_indices(train_idxs, val_idxs, test_idxs)
 
 
-class AirQuality(DatetimeDataset, MissingValuesMixin):
-    r"""Measurements of pollutant :math:`PM2.5` collected by 437 air quality
+class AirQuality(PandasDataset, MissingValuesMixin):
+    """Measurements of pollutant :math:`PM2.5` collected by 437 air quality
     monitoring stations spread across 43 Chinese cities from May 2014 to April
     2015.
 
-    The dataset contains also a smaller version :obj:`AirQuality(small=True)`
-    with only the subset of nodes containing the 36 sensors in Beijing.
-
-    Data collected inside the `Urban Air
-    <https://www.microsoft.com/en-us/research/project/urban-air/>`_ project.
-
-    Dataset size:
-        + Time steps: 8760
-        + Nodes: 437
-        + Channels: 1
-        + Sampling rate: 1 hour
-        + Missing values: 25.67%
-
-    Static attributes:
-        + :obj:`dist`: :math:`N \times N` matrix of node pairwise distances.
-    """
+    See more at https://www.microsoft.com/en-us/research/project/urban-air/"""
     url = "https://drive.switch.ch/index.php/s/W0fRqotjHxIndPj/download"
 
     similarity_options = {'distance'}
+    temporal_aggregation_options = {'mean', 'nearest'}
+    spatial_aggregation_options = {'mean'}
 
-    def __init__(self,
-                 root: str = None,
+    def __init__(self, root: str = None,
                  impute_nans: bool = True,
                  small: bool = False,
                  test_months: Sequence = (3, 6, 9, 12),
@@ -131,7 +116,8 @@ class AirQuality(DatetimeDataset, MissingValuesMixin):
         else:
             self.masked_sensors = list(masked_sensors)
         df, mask, eval_mask, dist = self.load(impute_nans=impute_nans)
-        super().__init__(target=df,
+        super().__init__(dataframe=df,
+                         attributes=dict(dist=dist),
                          mask=mask,
                          freq=freq,
                          similarity_score='distance',
@@ -139,7 +125,6 @@ class AirQuality(DatetimeDataset, MissingValuesMixin):
                          spatial_aggregation='mean',
                          default_splitting_method='air_quality',
                          name='AQI36' if self.small else 'AQI')
-        self.add_covariate('dist', dist, pattern='n n')
         self.set_eval_mask(eval_mask)
 
     @property
@@ -161,7 +146,6 @@ class AirQuality(DatetimeDataset, MissingValuesMixin):
         path = os.path.join(self.root_dir, 'full437.h5')
         stations = pd.DataFrame(pd.read_hdf(path, 'stations'))
         st_coord = stations.loc[:, ['latitude', 'longitude']]
-        from tsl.ops.similarities import geographical_distance
         dist = geographical_distance(st_coord, to_rad=True).values
         np.save(os.path.join(self.root_dir, 'aqi_dist.npy'), dist)
 
@@ -191,8 +175,7 @@ class AirQuality(DatetimeDataset, MissingValuesMixin):
             eval_mask[:, self.masked_sensors] = mask[:, self.masked_sensors]
         # eventually replace nans with weekly mean by hour
         if impute_nans:
-            from tsl.ops.framearray import temporal_mean
-            df = df.fillna(temporal_mean(df))
+            df = df.fillna(compute_mean(df))
         return df, mask, eval_mask, dist
 
     def get_splitter(self, method: Optional[str] = None, **kwargs):
@@ -203,8 +186,6 @@ class AirQuality(DatetimeDataset, MissingValuesMixin):
 
     def compute_similarity(self, method: str, **kwargs):
         if method == "distance":
-            from tsl.ops.similarities import gaussian_kernel
-
             # use same theta for both air and air36
             theta = np.std(self.dist[:36, :36])
             return gaussian_kernel(self.dist, theta=theta)

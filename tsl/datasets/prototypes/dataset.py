@@ -1,19 +1,29 @@
 import functools
 import os
-from typing import (Iterable, List, Mapping, Optional, Sequence, Set, Tuple,
-                    Union)
+from typing import (
+    Union,
+    Optional,
+    Iterable,
+    List,
+    Tuple,
+    Set,
+    Sequence
+)
 
 import numpy as np
 from numpy import ndarray
 from pandas import DataFrame, Series
-from scipy.sparse import coo_matrix, csc_matrix, csr_matrix
+from scipy.sparse import csr_matrix, csc_matrix, coo_matrix
+from torch import TensorType
 
 import tsl
-from tsl import config, logger
-
-from ...data.datamodule import Splitter, splitters
+from tsl import logger, config
+from ...data.datamodule import splitters, Splitter
+from ...ops.similarities import top_k
+from tsl.ops.connectivity import adj_to_edge_index
 from ...typing import ScipySparseMatrix
-from ...utils.io import load_pickle, save_pickle
+from ...utils import preprocessing
+from ...utils.io import save_pickle, load_pickle
 from ...utils.python_utils import ensure_list, files_exist, hash_dict
 
 
@@ -32,9 +42,10 @@ class Dataset(object):
     root: Optional[str] = None
 
     similarity_options: Optional[Set] = None
+    temporal_aggregation_options: Optional[Set] = None
+    spatial_aggregation_options: Optional[Set] = None
 
-    def __init__(self,
-                 name: Optional[str] = None,
+    def __init__(self, name: Optional[str] = None,
                  similarity_score: Optional[str] = None,
                  temporal_aggregation: str = 'sum',
                  spatial_aggregation: str = 'sum',
@@ -44,11 +55,20 @@ class Dataset(object):
         # Set similarity method
         if self.similarity_options is not None:
             if similarity_score not in self.similarity_options:
-                raise ValueError("{} is not a valid similarity method.".format(
-                    similarity_score))
+                raise ValueError("{} is not a valid similarity method."
+                                 .format(similarity_score))
         self.similarity_score = similarity_score
-        # Set aggregation methods
+        # Set temporal aggregation method
+        if self.temporal_aggregation_options is not None:
+            if temporal_aggregation not in self.temporal_aggregation_options:
+                raise ValueError("{} is not a valid temporal aggregation "
+                                 "method.".format(temporal_aggregation))
         self.temporal_aggregation = temporal_aggregation
+        # Set spatial aggregation method
+        if self.spatial_aggregation_options is not None:
+            if spatial_aggregation not in self.spatial_aggregation_options:
+                raise ValueError("{} is not a valid spatial aggregation "
+                                 "method.".format(spatial_aggregation))
         self.spatial_aggregation = spatial_aggregation
         # Set splitting method
         self.default_splitting_method = default_splitting_method
@@ -161,78 +181,40 @@ class Dataset(object):
         return root
 
     @property
-    def raw_file_names(self) \
-            -> Union[str, Sequence[str], Mapping[str, str]]:
+    def raw_file_names(self) -> Union[str, Sequence[str]]:
         """The name of the files in the :obj:`self.root_dir` folder that must be
         present in order to skip downloading."""
         return []
 
     @property
-    def required_file_names(self) \
-            -> Union[str, Sequence[str], Mapping[str, str]]:
+    def required_file_names(self) -> Union[str, Sequence[str]]:
         """The name of the files in the :obj:`self.root_dir` folder that must be
         present in order to skip building."""
-        return self.raw_file_names
+        return []
 
     @property
-    def raw_files_paths(self) -> Union[List[str], Mapping[str, str]]:
+    def raw_files_paths(self) -> List[str]:
         """The absolute filepaths that must be present in order to skip
         downloading."""
-        files = self.raw_file_names
-        if not isinstance(files, Mapping):
-            files = ensure_list(files)
-
-        if isinstance(files, list):
-            return [os.path.join(self.root_dir, f) for f in files]
-        else:
-            return {
-                k: os.path.join(self.root_dir, f)
-                for k, f in files.items()
-            }
+        files = ensure_list(self.raw_file_names)
+        return [os.path.join(self.root_dir, f) for f in files]
 
     @property
-    def required_files_paths(self) -> Union[List[str], Mapping[str, str]]:
+    def required_files_paths(self) -> List[str]:
         """The absolute filepaths that must be present in order to skip
         building."""
-        files = self.required_file_names
-        if not isinstance(files, Mapping):
-            files = ensure_list(files)
-
-        if isinstance(files, list):
-            return [os.path.join(self.root_dir, f) for f in files]
-        else:
-            return {
-                k: os.path.join(self.root_dir, f)
-                for k, f in files.items()
-            }
-
-    @property
-    def raw_files_paths_list(self) -> List[str]:
-        """The list of absolute filepaths that must be present in order to skip
-        downloading."""
-        files = self.raw_files_paths
-        if isinstance(files, Mapping):
-            files = list(files.values())
-        return files
-
-    @property
-    def required_files_paths_list(self) -> List[str]:
-        """The list of absolute filepaths that are required to load the
-        dataset."""
-        files = self.required_files_paths
-        if isinstance(files, Mapping):
-            files = list(files.values())
-        return files
+        files = ensure_list(self.required_file_names)
+        return [os.path.join(self.root_dir, f) for f in files]
 
     # Loading pipeline: load() → load_raw() → build() → download()
 
     def maybe_download(self):
-        if not files_exist(self.raw_files_paths_list):
+        if not files_exist(self.raw_files_paths):
             os.makedirs(self.root_dir, exist_ok=True)
             self.download()
 
     def maybe_build(self):
-        if not files_exist(self.required_files_paths_list):
+        if not files_exist(self.required_files_paths):
             os.makedirs(self.root_dir, exist_ok=True)
             self.build()
 
@@ -250,21 +232,19 @@ class Dataset(object):
         raise NotImplementedError
 
     def load(self, *args, **kwargs):
-        """Loads raw dataset and preprocess data. Default to :obj:`load_raw`."""
-        return self.load_raw(*args, **kwargs)
+        """Loads raw dataset and preprocess data."""
+        raise NotImplementedError
 
     def clean_downloads(self):
-        for file in self.raw_files_paths_list:
-            if file not in self.required_files_paths_list:
-                if os.path.exists(file):
-                    os.unlink(file)
+        for file in self.raw_files_paths:
+            if file not in self.required_files_paths:
+                os.unlink(file)
 
     def clean_root_dir(self):
         import shutil
-        total_files = self.required_files_paths_list + self.raw_files_paths_list
         for filename in os.listdir(self.root_dir):
             file_path = os.path.join(self.root_dir, filename)
-            if file_path in total_files:
+            if file_path in self.required_files_paths + self.raw_files_paths:
                 continue
             try:
                 if os.path.isfile(file_path) or os.path.islink(file_path):
@@ -282,16 +262,20 @@ class Dataset(object):
         has a dynamic structure."""
         raise NotImplementedError
 
-    def numpy(
-        self,
-        return_idx: bool = False
-    ) -> Union[ndarray, List[ndarray], Tuple[ndarray, Series], Tuple[
-            List[ndarray], Series]]:
+    def numpy(self, return_idx: bool = False) -> \
+            Union[ndarray, List[ndarray],
+                  Tuple[ndarray, Series], Tuple[List[ndarray], Series]]:
         """Returns a numpy representation of the dataset in the form of a
         :class:`~numpy.ndarray`. If :obj:`return_index` is :obj:`True`, it
         returns also a :class:`~pandas.Series` that can be used as index. May
         be a list of ndarrays (and Series) if the dataset has a dynamic
         structure."""
+        raise NotImplementedError
+
+    def pytorch(self) -> Union[TensorType, List[TensorType]]:
+        """Returns a pytorch representation of the dataset in the form of a
+        :class:`~torch.Tensor`. May be a list of Tensors if the dataset has a
+        dynamic structure."""
         raise NotImplementedError
 
     # IO
@@ -318,10 +302,9 @@ class Dataset(object):
 
     # Similarity pipeline: get_adj() → get_similarity() → compute_similarity()
 
-    def compute_similarity(self, method: str,
-                           **kwargs) -> Optional[np.ndarray]:
-        r"""Implements the options for the similarity matrix :math:`\mathbf{S}
-        \in \mathbb{R}^{N \times N}` computation, according to :obj:`method`.
+    def compute_similarity(self, method: str, **kwargs) -> Optional[np.ndarray]:
+        """Implements the options for the similarity matrix :math:`\mathbf{S}
+        \in \mathbb{R}^{N \\times N}` computation, according to :obj:`method`.
 
         Args:
             method (str): Method for the similarity computation.
@@ -332,11 +315,10 @@ class Dataset(object):
         """
         raise NotImplementedError
 
-    def get_similarity(self,
-                       method: Optional[str] = None,
+    def get_similarity(self, method: Optional[str] = None,
                        save: bool = False,
                        **kwargs) -> ndarray:
-        r"""Returns the matrix :math:`\mathbf{S} \in \mathbb{R}^{N \\times N}`,
+        """Returns the matrix :math:`\mathbf{S} \in \mathbb{R}^{N \\times N}`,
         where :math:`N=`:obj:`self.n_nodes`, with the pairwise similarity
         scores between nodes.
 
@@ -360,11 +342,10 @@ class Dataset(object):
         if method not in self.similarity_options:
             raise ValueError("Similarity method '{}' not valid".format(method))
         if save:
-            enc = hash_dict(
-                dict(method=method,
-                     class_name=self.__class__.__name__,
-                     name=self.name,
-                     **kwargs))
+            enc = hash_dict(dict(method=method,
+                                 class_name=self.__class__.__name__,
+                                 name=self.name,
+                                 **kwargs))
             name = "sim_{}.npy".format(enc)
             path = os.path.join(self.root_dir, name)
             if os.path.exists(path):
@@ -377,57 +358,45 @@ class Dataset(object):
             logger.info(f"Similarity matrix saved at {path}.")
         return sim
 
-    def get_connectivity(self,
-                         method: Optional[str] = None,
+    def get_connectivity(self, method: Optional[str] = None,
                          threshold: Optional[float] = None,
-                         knn: Optional[int] = None,
-                         binary_weights: bool = False,
-                         include_self: bool = True,
+                         knn: Optional[int] = None, include_self: bool = True,
                          force_symmetric: bool = False,
                          normalize_axis: Optional[int] = None,
                          layout: str = 'edge_index',
                          **kwargs) -> Union[ndarray, Tuple, ScipySparseMatrix]:
-        r"""Returns the weighted adjacency matrix :math:`\mathbf{A} \in
-        \mathbb{R}^{N \times N}`, where :math:`N=`:obj:`self.n_nodes`. The
-        element :math:`a_{i,j} \in \mathbf{A}` is 0 if there not exists an edge
-        connecting node :math:`i` to node :math:`j`. The return type depends on
-        the specified :obj:`layout` (default: :obj:`edge_index`).
+        r"""Returns the weighted adjacency matrix :math:`\mathbf{W} \in
+        \mathbb{R}^{N \\times N}`, where :math:`N=`:obj:`self.n_nodes`. The
+        element :math:`w_{i,j} \in \mathbf{W}` is 0 if there not exists an edge
+        connecting node :math:`i` to node :math:`j`. If `sparse`, returns edge
+        index :math:`\mathcal{E}` and edge weights :math:`\mathbf{w} \in
+        \mathbb{R}^{|\mathcal{E}|}` (default: :obj:`True`).
 
         Args:
             method (str, optional): Method for the similarity computation. If
                 :obj:`None`, defaults to dataset-specific default method.
                 (default: :obj:`None`)
             threshold (float, optional): If not :obj:`None`, set to 0 the values
-                below the threshold.
-                (default: :obj:`None`)
+                below the threshold. (default: :obj:`None`)
             knn (int, optional): If not :obj:`None`, keep only :math:`k=`
                 :obj:`knn` nearest incoming neighbors.
                 (default: :obj:`None`)
-            binary_weights (bool): If :obj:`True`, the positive weights of the
-                adjacency matrix are set to 1.
-                (default: :obj:`False`)
             include_self (bool): If :obj:`False`, self-loops are never taken
-                into account. (default: :obj:`True`)
+                into account. (default: :obj:`False`)
             force_symmetric (bool): Force adjacency matrix to be symmetric by
                 taking the maximum value between the two directions for each
                 edge. (default: :obj:`False`)
-            normalize_axis (int, optional): Divide edge weight :math:`a_{i, j}`
-                by :math:`\sum_k a_{i, k}`, if :obj:`normalize_axis=0` or
-                :math:`\sum_k a_{k, j}`, if :obj:`normalize_axis=1`. :obj:`None`
+            normalize_axis (int, optional): Divide edge weight :math:`w_{i, j}`
+                by :math:`\sum_k w_{i, k}`, if :obj:`normalize_axis=0` or
+                :math:`\sum_k w_{k, j}`, if :obj:`normalize_axis=1`. :obj:`None`
                 for no normalization.
                 (default: :obj:`None`)
             layout (str): Convert matrix to a dense/sparse format. Available
                 options are:
-
-                - :obj:`dense`: keep matrix dense :math:`\mathbf{A} \in
-                  \mathbb{R}^{N \times N}`.
-                - :obj:`edge_index`: convert to (edge_index, edge_weight) tuple,
-                  where edge_index has shape :math:`[2, E]` and edge_weight has
-                  shape :math:`[E]`, being :math:`E` the number of edges.
-                - :obj:`coo`/:obj:`csr`/:obj:`csc`: convert to specified scipy
-                  sparse matrix type.
-
-                (default: :obj:`edge_index`)
+                  - dense: keep matrix dense
+                  - edge_index: convert to (edge_index, edge_weight) tuple
+                  - coo, csr, csc: convert to specified scipy sparse matrix
+                (default: 'dense')
             **kwargs (optional): Additional optional keyword arguments for
                 similarity computation.
 
@@ -446,16 +415,10 @@ class Dataset(object):
             adj = np.eye(self.n_nodes)
         else:
             adj = self.get_similarity(method, **kwargs)
-        if knn is not None:
-            from tsl.ops.similarities import top_k
-            adj = top_k(adj,
-                        knn,
-                        include_self=include_self,
-                        keep_values=not binary_weights)
-        elif binary_weights:
-            adj = (adj > 0).astype(adj.dtype)
         if threshold is not None:
             adj[adj < threshold] = 0
+        if knn is not None:
+            adj = top_k(adj, knn, include_self=include_self)
         if not include_self:
             np.fill_diagonal(adj, 0)
         if force_symmetric:
@@ -465,25 +428,21 @@ class Dataset(object):
         if layout == 'dense':
             return adj
         elif layout == 'edge_index':
-            from tsl.ops.connectivity import adj_to_edge_index
             return adj_to_edge_index(adj)
-        elif layout in ['coo', 'sparse_matrix']:
+        elif layout == 'coo':
             return coo_matrix(adj)
         elif layout == 'csr':
             return csr_matrix(adj)
         elif layout == 'csc':
             return csc_matrix(adj)
         else:
-            raise ValueError(
-                f"Invalid format for connectivity: {layout}. Valid"
-                " options are [dense, edge_index, coo, csr, csc].")
+            raise ValueError(f"Invalid format for connectivity: {layout}. Valid"
+                             " options are [dense, edge_index, coo, csr, csc].")
 
     # Cross-validation splitting options
 
-    def get_splitter(self,
-                     method: Optional[str] = None,
-                     *args,
-                     **kwargs) -> Splitter:
+    def get_splitter(self, method: Optional[str] = None,
+                     *args, **kwargs) -> Splitter:
         """Returns the splitter for a :class:`~tsl.data.SpatioTemporalDataset`.
         A :class:`~tsl.data.preprocessing.Splitter` provides the splits of the
         dataset -- in terms of indices -- for cross validation."""
@@ -497,7 +456,9 @@ class Dataset(object):
         Args:
             node_index: Sequence of grouped node ids.
         """
-        raise NotImplementedError
+        return preprocessing.aggregate(self.dataframe(),
+                                       node_index,
+                                       self.spatial_aggregation)
 
     # Getters for SpatioTemporalDataset
 

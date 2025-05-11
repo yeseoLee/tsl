@@ -4,58 +4,45 @@ import numpy as np
 import pandas as pd
 
 from tsl import logger
-
+from .prototypes import PandasDataset
 from ..ops.similarities import gaussian_kernel
 from ..utils import download_url, extract_zip
-from .prototypes import DatetimeDataset
 
 
-class MetrLA(DatetimeDataset):
-    r"""Traffic readings collected from 207 loop detectors on
-    highways in Los Angeles County, aggregated in 5 minutes intervals over four
-    months between March 2012 and June 2012.
+class MetrLA(PandasDataset):
+    """A benchmark dataset for traffic forecasting as described in
+    `"Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic Forecasting" <https://arxiv.org/abs/1707.01926>`_
 
-    A benchmark dataset for traffic forecasting as described in
-    `"Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic
-    Forecasting" <https://arxiv.org/abs/1707.01926>`_.
-
-    Dataset information:
-        + Time steps: 34272
-        + Nodes: 207
-        + Channels: 1
-        + Sampling rate: 5 minutes
-        + Missing values: 8.11%
-
-    Static attributes:
-        + :obj:`dist`: :math:`N \times N` matrix of node pairwise distances.
-    """
+    The dataset contains traffic readings collected from 207 loop detectors on
+    highways in Los Angeles County, aggregated in 5 minute intervals for four
+    months between March 2012 to June 2012."""
     url = "https://drive.switch.ch/index.php/s/Z8cKHAVyiDqkzaG/download"
 
     similarity_options = {'distance'}
+    temporal_aggregation_options = {'mean', 'nearest'}
+    spatial_aggregation_options = None
 
     def __init__(self, root=None, impute_zeros=True, freq=None):
         # set root path
         self.root = root
         # load dataset
         df, dist, mask = self.load(impute_zeros=impute_zeros)
-        super().__init__(target=df,
+        super().__init__(dataframe=df,
                          mask=mask,
+                         attributes=dict(dist=dist),
                          freq=freq,
                          similarity_score="distance",
                          temporal_aggregation="nearest",
                          name="MetrLA")
-        self.add_covariate('dist', dist, pattern='n n')
 
     @property
     def raw_file_names(self):
-        return [
-            'metr_la.h5', 'distances_la.csv', 'sensor_locations_la.csv',
-            'sensor_ids_la.txt'
-        ]
+        return ['metr_la.h5', 'distances_la.csv', 'sensor_locations_la.csv',
+                'sensor_ids_la.txt']
 
     @property
     def required_file_names(self):
-        return ['metr_la.h5', 'metr_la_dist.npy', 'locations.csv']
+        return ['metr_la.h5', 'metr_la_dist.npy']
 
     def download(self) -> None:
         path = download_url(self.url, self.root_dir)
@@ -83,9 +70,6 @@ class MetrLA(DatetimeDataset):
         # Save to built directory
         path = os.path.join(self.root_dir, 'metr_la_dist.npy')
         np.save(path, dist)
-        # Rename locations file
-        os.rename(os.path.join(self.root_dir, 'sensor_locations_la.csv'),
-                  os.path.join(self.root_dir, 'locations.csv'))
         # Remove raw data
         self.clean_downloads()
 
@@ -94,8 +78,9 @@ class MetrLA(DatetimeDataset):
         # load traffic data
         traffic_path = os.path.join(self.root_dir, 'metr_la.h5')
         df = pd.read_hdf(traffic_path)
-        # add missing values (index is sorted)
-        date_range = pd.date_range(df.index[0], df.index[-1], freq='5T')
+        # add missing values
+        datetime_idx = sorted(df.index)
+        date_range = pd.date_range(datetime_idx[0], datetime_idx[-1], freq='5T')
         df = df.reindex(index=date_range)
         # load distance matrix
         path = os.path.join(self.root_dir, 'metr_la_dist.npy')

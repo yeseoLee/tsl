@@ -1,11 +1,7 @@
 import os
 import pickle
-import tarfile
-import urllib.request
 import zipfile
-from typing import Any, Optional
-
-from tqdm import tqdm
+from typing import Any
 
 from tsl import logger
 
@@ -23,23 +19,6 @@ def extract_zip(path: str, folder: str, log: bool = True):
         logger.info(f"Extracting {path}")
     with zipfile.ZipFile(path, 'r') as f:
         f.extractall(folder)
-
-
-def extract_tar(path: str, folder: str, log: bool = True):
-    r"""Extracts a tar (or tar.gz) archive to a specific folder.
-
-    Args:
-        path (string): The path to the tar(gz) archive.
-        folder (string): The destination folder.
-        log (bool, optional): If :obj:`False`, will not log anything.
-            (default: :obj:`True`)
-    """
-    if log:
-        logger.info(f"Extracting {path}")
-    with tarfile.open(path, 'r') as tar:
-        for member in tqdm(iterable=tar.getmembers(),
-                           total=len(tar.getmembers())):
-            tar.extract(member=member, path=folder)
 
 
 def save_pickle(obj: Any, filename: str) -> str:
@@ -75,10 +54,10 @@ def load_pickle(filename: str) -> Any:
 
 
 def save_figure(fig, filename: str, as_html=False, as_pickle=False):
-    if filename.endswith('.html'):
+    if filename.endswith('html'):
         as_html = True
         filename = filename[:-5]
-    elif filename.endswith('.pkl'):
+    elif filename.endswith('pkl'):
         as_pickle = True
         filename = filename[:-4]
     if not (as_html or as_pickle):
@@ -91,48 +70,3 @@ def save_figure(fig, filename: str, as_html=False, as_pickle=False):
         import pickle
         with open(filename + '.pkl', 'wb') as fp:
             pickle.dump(fig, fp)
-
-
-class DownloadProgressBar(tqdm):
-    # From https://stackoverflow.com/a/53877507
-    def update_to(self, b=1, bsize=1, tsize=None):
-        if tsize is not None:
-            self.total = tsize
-        self.update(b * bsize - self.n)
-
-
-def download_url(url: str,
-                 folder: str,
-                 filename: Optional[str] = None,
-                 log: bool = True):
-    r"""Downloads the content of an URL to a specific folder.
-
-    Args:
-        url (string): The url.
-        folder (string): The folder.
-        filename (string, optional): The filename. If :obj:`None`, inferred from
-            url.
-        log (bool, optional): If :obj:`False`, will not log anything.
-            (default: :obj:`True`)
-    """
-    if filename is None:
-        filename = url.rpartition('/')[2].split('?')[0]
-    path = os.path.join(folder, filename)
-
-    if os.path.exists(path):
-        if log:
-            logger.warning(f'Using existing file {filename}')
-        return path
-
-    if log:
-        logger.info(f'Downloading {url}')
-
-    os.makedirs(folder, exist_ok=True)
-
-    # From https://stackoverflow.com/a/53877507
-    with DownloadProgressBar(unit='B',
-                             unit_scale=True,
-                             miniters=1,
-                             desc=url.split('/')[-1]) as t:
-        urllib.request.urlretrieve(url, filename=path, reporthook=t.update_to)
-    return path

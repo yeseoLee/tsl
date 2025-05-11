@@ -1,13 +1,23 @@
 Models
 ======
 
-.. currentmodule:: tsl.nn.models
 
-.. autoclass:: BaseModel
+General Models
+--------------
+
+.. currentmodule:: tsl.nn.models
+.. autosummary::
+   :nosignatures:
+   {% for cls in tsl.nn.models.classes %}
+     {{ cls }}
+   {% endfor %}
+
+.. automodule:: tsl.nn.models
     :members:
 
-Spatiotemporal Models
----------------------
+
+Spatio-Temporal Prediction Models
+---------------------------------
 
 .. currentmodule:: tsl.nn.models.stgn
 .. autosummary::
@@ -18,21 +28,17 @@ Spatiotemporal Models
 
 .. automodule:: tsl.nn.models.stgn
     :members:
-    :undoc-members:
-    :exclude-members: training, add_model_specific_args
 
 
-Temporal Models
----------------
+Spatio-Temporal Imputation Models
+---------------------------------
 
-.. currentmodule:: tsl.nn.models.temporal
+.. currentmodule:: tsl.nn.models.imputation
 .. autosummary::
    :nosignatures:
-   {% for cls in tsl.nn.models.temporal.classes %}
+   {% for cls in tsl.nn.models.imputation.classes %}
      {{ cls }}
    {% endfor %}
 
-.. automodule:: tsl.nn.models.temporal
+.. automodule:: tsl.nn.models.imputation
     :members:
-    :undoc-members:
-    :exclude-members: training, add_model_specific_args

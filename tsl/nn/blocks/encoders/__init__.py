@@ -1,40 +1,54 @@
-from . import multi, recurrent
 from .conditional import ConditionalBlock, ConditionalTCNBlock
+from .dcrnn import DCRNNCell, DCRNN
+from .dense_dcrnn import DenseDCRNNCell, DenseDCRNN
+from .gcgru import GraphConvGRUCell, GraphConvGRU
+from .gclstm import GraphConvLSTMCell, GraphConvLSTM
 from .mlp import MLP, ResidualMLP
-from .mlp_attention import MLPAttention, TemporalMLPAttention
-from .multi import MultiMLP, MultiRNN
-from .recurrent import (AGCRN, DCRNN, RNN, DenseDCRNN, EvolveGCN, GraphConvRNN,
-                        RNNBase)
+from .rnn import RNN
 from .stcn import SpatioTemporalConvNet
 from .tcn import TemporalConvNet
-from .transformer import (SpatioTemporalTransformerLayer, Transformer,
-                          TransformerLayer)
+from .transformer import (TransformerLayer, SpatioTemporalTransformerLayer,
+                          Transformer)
 
-__all__ = [
+general_classes = [
+    'ConditionalBlock',
+    'ConditionalTCNBlock',
     'MLP',
     'ResidualMLP',
-    'MultiMLP',
-    'ConditionalBlock',
-    'TemporalConvNet',
-    'SpatioTemporalConvNet',
-    'ConditionalTCNBlock',
-    # Attention
-    'MLPAttention',
-    'TemporalMLPAttention',
-    'TransformerLayer',
-    'SpatioTemporalTransformerLayer',
-    'Transformer',
-    # RNN
-    'RNNBase',
     'RNN',
-    'MultiRNN',
-    'GraphConvRNN',
-    'DCRNN',
-    'DenseDCRNN',
-    'AGCRN',
-    'EvolveGCN'
 ]
 
-enc_classes = __all__[:10]
-rnn_classes = __all__[10:]
-classes = __all__
+cell_classes = [
+    'DCRNNCell',
+    'DenseDCRNNCell',
+    'GraphConvGRUCell',
+    'GraphConvLSTMCell'
+]
+
+grnn_classes = [
+    'DCRNN',
+    'DenseDCRNN',
+    'GraphConvGRU',
+    'GraphConvLSTM'
+]
+
+conv_classes = [
+    'TemporalConvNet',
+    'SpatioTemporalConvNet'
+]
+
+transformer_classes = [
+    'TransformerLayer',
+    'SpatioTemporalTransformerLayer',
+    'Transformer'
+]
+
+classes = [
+    *general_classes,
+    *cell_classes,
+    *grnn_classes,
+    *conv_classes,
+    *transformer_classes
+]
+
+__all__ = classes

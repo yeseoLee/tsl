@@ -6,20 +6,9 @@ Encoders
 --------
 
 .. currentmodule:: tsl.nn.blocks.encoders
-
 .. autosummary::
    :nosignatures:
-   {% for cls in tsl.nn.blocks.encoders.enc_classes %}
-     {{ cls }}
-   {% endfor %}
-
-
-Recurrent Encoders
-++++++++++++++++++
-
-.. autosummary::
-   :nosignatures:
-   {% for cls in tsl.nn.blocks.encoders.rnn_classes %}
+   {% for cls in tsl.nn.blocks.encoders.classes %}
      {{ cls }}
    {% endfor %}
 

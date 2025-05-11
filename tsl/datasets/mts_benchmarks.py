@@ -1,38 +1,41 @@
-import os
 
 import pandas as pd
+import os
 
 import tsl
-from tsl.datasets.prototypes import DatetimeDataset
 from tsl.utils import download_url
+from tsl.datasets.prototypes import PandasDataset
 
 
-class _MTSBenchmarkDataset(DatetimeDataset):
-    """Abstract class for loading datasets from
-    https://github.com/laiguokun/multivariate-time-series-data.
-
-    Args:
-        root: Root folder for data download.
-        freq: Resampling frequency.
+class _MTSBenchmarkDataset(PandasDataset):
+    """
+    Abstract class for loading datasets from https://github.com/laiguokun/multivariate-time-series-data
     """
     url = None
     default_similarity_score = None
     default_spatial_aggregation = None
     default_temporal_aggregation = None
     default_freq = None
-    start_date = None
+    start_date = '01-01-12 00:00'
 
-    def __init__(self, root=None, freq=None):
+    def __init__(self,
+                 root=None,
+                 freq=None):
+        """
+
+        Args:
+            root: Root folder for data download.
+            freq: Resampling frequency.
+        """
         self.root = root
         df, mask = self.load()
-        super().__init__(
-            target=df,
-            mask=mask,
-            freq=freq,
-            similarity_score=self.default_similarity_score,
-            temporal_aggregation=self.default_temporal_aggregation,
-            spatial_aggregation=self.default_spatial_aggregation,
-            name=self.__class__.__name__)
+        super().__init__(dataframe=df,
+                         mask=mask,
+                         freq=freq,
+                         similarity_score=self.default_similarity_score,
+                         temporal_aggregation=self.default_temporal_aggregation,
+                         spatial_aggregation=self.default_spatial_aggregation,
+                         name=self.__class__.__name__)
 
     @property
     def required_file_names(self):
@@ -50,13 +53,12 @@ class _MTSBenchmarkDataset(DatetimeDataset):
                          header=None,
                          sep=',',
                          compression='gzip')
-        index = pd.date_range(start=self.start_date,
-                              periods=len(df),
-                              freq=self.default_freq)
+        index = pd.date_range(start=self.start_date, periods=len(df), freq=self.default_freq)
         df = df.set_index(index)
         path = os.path.join(self.root_dir, f'{self.__class__.__name__}.h5')
         df.to_hdf(path, key='raw')
         self.clean_downloads()
+        return df
 
     def load_raw(self) -> pd.DataFrame:
         self.maybe_build()
@@ -71,32 +73,26 @@ class _MTSBenchmarkDataset(DatetimeDataset):
 
 
 class ElectricityBenchmark(_MTSBenchmarkDataset):
-    """Electricity consumption (in kWh) measured hourly by 321 sensors from
-    2012 to 2014.
+    r"""
+    From https://github.com/laiguokun/multivariate-time-series-data :
 
-    Imported from https://github.com/laiguokun/multivariate-time-series-data.
-    The `original dataset
-    <https://archive.ics.uci.edu/ml/datasets/ElectricityLoadDiagrams20112014>`_
-    records values in kW for 370 nodes starting from 2011, with part of the
-    nodes with missing values before 2012. For the original dataset refer to
-    :class:`~tsl.datasets.Elergone`.
-
-    Dataset information:
-        + Time steps: 26304
-        + Nodes: 321
-        + Channels: 1
-        + Sampling rate: 1 hour
-        + Missing values: 1.09%
+    The raw dataset is in https://archive.ics.uci.edu/ml/datasets/ElectricityLoadDiagrams20112014.
+    It is the electricity consumption in kWh was recorded every 15 minutes from 2011 to 2014.
+    Because the some dimensions are equal to 0. So we eliminate the records in 2011.
+    Final we get data contains electricity consumption of 321 clients from 2012 to 2014.
+    And we converted the data to reflect hourly consumption.
     """
-    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/electricity/electricity.txt.gz?raw=true'  # noqa
+    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/electricity/electricity.txt.gz?raw=true'
 
     similarity_options = None
+    temporal_aggregation_options = {'sum'}
+    spatial_aggregation_options = {'sum'}
 
     default_similarity_score = None
     default_temporal_aggregation = 'sum'
     default_spatial_aggregation = 'sum'
     default_freq = '1H'
-    start_date = '01-01-2012 00:00'
+    start_date = '01-01-2001 00:00'
 
     @property
     def raw_file_names(self):
@@ -104,23 +100,19 @@ class ElectricityBenchmark(_MTSBenchmarkDataset):
 
 
 class TrafficBenchmark(_MTSBenchmarkDataset):
-    """A collection of hourly road occupancy rates (between 0 and 1) measured
-    by 862 sensors for 48 months (2015-2016) on San Francisco Bay Area freeways.
+    r"""
+    From https://github.com/laiguokun/multivariate-time-series-data :
 
-    Imported from https://github.com/laiguokun/multivariate-time-series-data,
-    raw data at `California Department of Transportation
-    <https://pems.dot.ca.gov>`_.
-
-    Dataset information:
-        + Time steps: 17544
-        + Nodes: 862
-        + Channels: 1
-        + Sampling rate: 1 hour
-        + Missing values: 0.90%
+    The raw data is in http://pems.dot.ca.gov. The data in this repo is a collection of 48 months (2015-2016) hourly
+    data from the California Department of Transportation.
+    The data describes the road occupancy rates (between 0 and 1) measured by different sensors on San Francisco Bay area
+    freeways.
     """
-    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/traffic/traffic.txt.gz?raw=true'  # noqa
+    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/traffic/traffic.txt.gz?raw=true'
 
     similarity_options = None
+    temporal_aggregation_options = {'mean'}
+    spatial_aggregation_options = {'mean'}
 
     default_similarity_score = None
     default_temporal_aggregation = 'mean'
@@ -134,24 +126,18 @@ class TrafficBenchmark(_MTSBenchmarkDataset):
 
 
 class SolarBenchmark(_MTSBenchmarkDataset):
-    """Solar power production records in the year of 2006, is sampled every 10
-    minutes from 137 synthetic PV farms in Alabama State.
-    The mask denotes 55.10% of data corresponding to daily hours with nonzero
-    power production.
+    r"""
+    From https://github.com/laiguokun/multivariate-time-series-data :
 
-    Imported from https://github.com/laiguokun/multivariate-time-series-data,
-    raw data at https://www.nrel.gov/grid/solar-power-data.html.
-
-    Dataset information:
-        + Time steps: 52560
-        + Nodes: 137
-        + Channels: 1
-        + Sampling rate: 10 minutes
-        + Missing values: 0.00%
+    The raw data is in http://www.nrel.gov/grid/solar-power-data.html .
+    It contains the solar power production records in the year of 2006, which is sampled every 10 minutes from 137 PV
+    plants in Alabama State.
     """
-    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/solar-energy/solar_AL.txt.gz?raw=true'  # noqa
+    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/solar-energy/solar_AL.txt.gz?raw=true'
 
     similarity_options = None
+    temporal_aggregation_options = {'mean'}
+    spatial_aggregation_options = {'sum'}
 
     default_similarity_score = None
     default_temporal_aggregation = 'mean'
@@ -165,29 +151,24 @@ class SolarBenchmark(_MTSBenchmarkDataset):
 
 
 class ExchangeBenchmark(_MTSBenchmarkDataset):
-    """The collection of the daily exchange rates of eight foreign countries
-    including Australia, British, Canada, Switzerland, China, Japan, New
-    Zealand and Singapore ranging from 1990 to 2016.
+    r"""
+    From https://github.com/laiguokun/multivariate-time-series-data :
 
-    Imported from https://github.com/laiguokun/multivariate-time-series-data.
-
-    Dataset information:
-        + Time steps: 7588
-        + Nodes: 8
-        + Channels: 1
-        + Sampling rate: 1 day
-        + Missing values: 0.00%
+    The collection of the daily exchange rates of eight foreign countries including Australia, British, Canada,
+    Switzerland, China, Japan, New Zealand and Singapore ranging from 1990 to 2016.
     """
-    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/exchange_rate/exchange_rate.txt.gz?raw=true'  # noqa
+    url = 'https://github.com/TorchSpatiotemporal/multivariate-time-series-data/blob/master/exchange_rate/exchange_rate.txt.gz?raw=true'
 
     similarity_options = None
+    temporal_aggregation_options = {'mean'}
+    spatial_aggregation_options = None
 
     default_similarity_score = None
     default_temporal_aggregation = 'mean'
     default_spatial_aggregation = None
     default_freq = '1D'
-    start_date = '01-01-1990'
 
     @property
     def raw_file_names(self):
         return ['exchange_rate.txt.gz']
+

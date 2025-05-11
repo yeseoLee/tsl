@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torch.nn import Parameter
+from torch.nn import Parameter, Linear
 from torch_geometric.nn import inits
 
 
@@ -15,7 +15,6 @@ class InstanceNorm(torch.nn.Module):
             learnable affine parameters :math:`\gamma` and :math:`\beta`.
             (default: :obj:`True`)
     """
-
     def __init__(self, in_channels, eps=1e-5, affine=True):
         super().__init__()
 
@@ -36,7 +35,6 @@ class InstanceNorm(torch.nn.Module):
         inits.zeros(self.bias)
 
     def forward(self, x: Tensor) -> Tensor:
-        """"""
         # x : [*, nodes, features]
         mean = torch.mean(x, dim=-2, keepdim=True)
         std = torch.std(x, dim=-2, unbiased=False, keepdim=True)

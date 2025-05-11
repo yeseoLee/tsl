@@ -19,10 +19,7 @@ class BatchNorm(torch.nn.Module):
             (default: :obj:`True`)
     """
 
-    def __init__(self,
-                 in_channels,
-                 eps: float = 1e-5,
-                 momentum: float = 0.1,
+    def __init__(self, in_channels, eps: float = 1e-5, momentum: float = 0.1,
                  affine: bool = True,
                  track_running_stats: bool = True):
         super().__init__()

@@ -1,11 +1,7 @@
-.. py:module:: tsl.data.preprocessing
+Data preprocessing
+==================
+
 .. currentmodule:: tsl.data.preprocessing
-
-Preprocessing
-=============
-
-The module :mod:`tsl.data.preprocessing` exposes API to preprocess
-spatiotemporal data.
 
 
 Scalers

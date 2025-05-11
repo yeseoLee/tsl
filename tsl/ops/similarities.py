@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
-
 import tsl
+
+from sklearn.metrics.pairwise import rbf_kernel, haversine_distances
+
 from tsl.typing import FrameArray
 
 
@@ -9,9 +11,8 @@ def _pearson_sim_matrix(unbiased_x, norms):
     n_samples = unbiased_x.shape[0]
     res = np.zeros(shape=(n_samples, n_samples))
     for i in range(n_samples):
-        corr = (unbiased_x[i] @ unbiased_x[i + 1:].T) / (
-            norms[i] * norms[i + 1:] + 1e-8)
-        res[i, i + 1:] = corr
+            corr = (unbiased_x[i] @ unbiased_x[i+1:].T) / (norms[i] * norms[i+1:] + 1e-8)
+            res[i, i+1:] = corr
     return res + res.T + np.identity(n_samples)
 
 
@@ -22,11 +23,10 @@ def pearson_sim_matrix(X):
 
 
 def correntropy(x, period, mask=None, gamma=0.05):
-    """Computes similarity matrix by looking at the similarity of windows of
-    length `period` using correntropy.
+    """
+    Computes similarity matrix by looking at the similarity of windows of length `period` using correntropy.
 
-    See Liu et al., "Correntropy: Properties and Applications in Non-Gaussian
-    Signal Processing", TSP 2007.
+    See Liu et al., "Correntropy: Properties and Applications in Non-Gaussian Signal Processing", TSP 2007
 
     Args:
         x: Input series.
@@ -37,8 +37,6 @@ def correntropy(x, period, mask=None, gamma=0.05):
     Returns:
         The similarity matrix.
     """
-    from sklearn.metrics.pairwise import rbf_kernel
-
     if mask is None:
         mask = 1 - np.isnan(x, dtype='uint8')
         mask = mask[..., None]
@@ -80,7 +78,7 @@ def geographical_distance(x: FrameArray, to_rad: bool = True):
         The distance between the points in kilometers. The type is the same as
         :obj:`x`.
     """
-    AVG_EARTH_RADIUS_KM = 6371.0088
+    _AVG_EARTH_RADIUS_KM = 6371.0088
 
     # Extract values of X if it is a DataFrame
     # Assume it is 2-dim array_like of lat-lon pairs
@@ -88,11 +86,9 @@ def geographical_distance(x: FrameArray, to_rad: bool = True):
 
     # If the input values are in degrees, convert them in radians
     if to_rad:
-        latlon_pairs = np.radians(latlon_pairs)
+        latlon_pairs = np.vectorize(np.radians)(latlon_pairs)
 
-    from sklearn.metrics.pairwise import haversine_distances
-    distances = haversine_distances(latlon_pairs) * AVG_EARTH_RADIUS_KM
-    distances = distances.astype(latlon_pairs.dtype)
+    distances = haversine_distances(latlon_pairs) * _AVG_EARTH_RADIUS_KM
 
     # Cast response
     if isinstance(x, pd.DataFrame):
@@ -124,9 +120,7 @@ def top_k(matrix, k, include_self=False, keep_values=False):
     return knn_matrix
 
 
-def thresholded_gaussian_kernel(x,
-                                theta=None,
-                                threshold=None,
+def thresholded_gaussian_kernel(x, theta=None, threshold=None,
                                 threshold_on_input=False):
     if theta is None:
         theta = np.std(x)

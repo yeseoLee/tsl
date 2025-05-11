@@ -4,18 +4,13 @@ import numpy as np
 import pandas as pd
 
 from tsl import logger
-from tsl.datasets.prototypes import TabularDataset
+from tsl.datasets.prototypes import PandasDataset
 from tsl.datasets.prototypes.mixin import MissingValuesMixin
 from tsl.utils.python_utils import ensure_list
 
 
-def sample_mask(shape,
-                p: float = 0.002,
-                p_noise: float = 0.,
-                max_seq: int = 1,
-                min_seq: int = 1,
-                rng: np.random.Generator = None,
-                verbose: bool = True):
+def sample_mask(shape, p=0.002, p_noise=0., max_seq=1, min_seq=1, rng=None,
+                verbose=True):
     if rng is None:
         rand = np.random.random
         randint = np.random.randint
@@ -41,10 +36,9 @@ def sample_mask(shape,
 
 
 def missing_val_lens(mask):
-    m = np.concatenate([
-        np.zeros((1, mask.shape[1])), (~mask.astype('bool')).astype('int'),
-        np.zeros((1, mask.shape[1]))
-    ])
+    m = np.concatenate([np.zeros((1, mask.shape[1])),
+                        (~mask.astype('bool')).astype('int'),
+                        np.zeros((1, mask.shape[1]))])
     mdiff = np.diff(m, axis=0)
     lens = []
     for c in range(m.shape[1]):
@@ -54,10 +48,10 @@ def missing_val_lens(mask):
     return lens
 
 
-def to_missing_values_dataset(dataset: TabularDataset,
+def to_missing_values_dataset(dataset: PandasDataset,
                               eval_mask: np.ndarray,
-                              inplace: bool = True):
-    assert isinstance(dataset, TabularDataset)
+                              inplace=True):
+    assert isinstance(dataset, PandasDataset)
     if not inplace:
         dataset = deepcopy(dataset)
 
@@ -73,7 +67,7 @@ def to_missing_values_dataset(dataset: TabularDataset,
     return dataset
 
 
-def add_missing_values(dataset: TabularDataset,
+def add_missing_values(dataset: PandasDataset,
                        p_noise=0.05,
                        p_fault=0.01,
                        min_seq=1,
@@ -111,28 +105,17 @@ def add_missing_values(dataset: TabularDataset,
 def prediction_dataframe(y, index, columns=None, aggregate_by='mean'):
     """Aggregate batched predictions in a single DataFrame.
 
-    Args:
-        y (list or np.ndarray): The list of predictions.
-        index (list or np.ndarray): The list of time indexes coupled with
-            the predictions.
-        columns (list or pd.Index): The columns of the returned DataFrame.
-        aggregate_by (str or list): How to aggregate the predictions in case
-            there are more than one for a step.
-
-            - `mean`: take the mean of the predictions;
-            - `central`: take the prediction at the central position, assuming
-              that the predictions are ordered chronologically;
-            - `smooth_central`: average the predictions weighted by a gaussian
-              signal with std=1.
-
-    Returns:
-        pd.DataFrame: The evaluation mask for the DataFrame.
+    @param (list or np.ndarray) y: the list of predictions.
+    @param (list or np.ndarray) index: the list of time indexes coupled with the predictions.
+    @param (list or pd.Index) columns: the columns of the returned DataFrame.
+    @param (str or list) aggregate_by: how to aggregate the predictions in case there are more than one for a step.
+    - `mean`: take the mean of the predictions
+    - `central`: take the prediction at the central position, assuming that the predictions are ordered chronologically
+    - `smooth_central`: average the predictions weighted by a gaussian signal with std=1
+    @return: pd.DataFrame df: the evaluation mask for the DataFrame
     """
-    dfs = [
-        pd.DataFrame(data=data.reshape(data.shape[:2]),
-                     index=idx,
-                     columns=columns) for data, idx in zip(y, index)
-    ]
+    dfs = [pd.DataFrame(data=data.reshape(data.shape[:2]), index=idx,
+                        columns=columns) for data, idx in zip(y, index)]
     df = pd.concat(dfs)
     preds_by_step = df.groupby(df.index)
     # aggregate according passed methods
@@ -145,15 +128,14 @@ def prediction_dataframe(y, index, columns=None, aggregate_by='mean'):
             dfs.append(preds_by_step.aggregate(lambda x: x[int(len(x) // 2)]))
         elif aggr_by == 'smooth_central':
             from scipy.signal import gaussian
-            dfs.append(
-                preds_by_step.aggregate(
-                    lambda x: np.average(x, weights=gaussian(len(x), 1))))
+            dfs.append(preds_by_step.aggregate(
+                lambda x: np.average(x, weights=gaussian(len(x), 1))))
         elif aggr_by == 'last':
             # first imputation has missing value in last position
             dfs.append(preds_by_step.aggregate(lambda x: x[0]))
         else:
-            raise ValueError("aggregate_by can only be one of "
-                             "['mean', 'central', 'smooth_central', 'last']")
+            raise ValueError('aggregate_by can only be one of %s' %
+                             ['mean', 'central', 'smooth_central', 'last'])
     if isinstance(aggregate_by, str):
         return dfs[0]
     return dfs

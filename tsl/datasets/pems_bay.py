@@ -6,49 +6,37 @@ import pandas as pd
 from tsl import logger
 from tsl.ops.similarities import gaussian_kernel
 from tsl.utils import download_url, extract_zip
+from .prototypes import PandasDataset
 
-from .prototypes import DatetimeDataset
 
+class PemsBay(PandasDataset):
+    """A benchmark dataset for traffic forecasting as described in
+    `"Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic Forecasting" <https://arxiv.org/abs/1707.01926>`_
 
-class PemsBay(DatetimeDataset):
-    r"""The dataset contains 6 months of traffic readings from 01/01/2017 to
+    The dataset contains 6 months of traffic readings from 01/01/2017 to
     05/31/2017 collected every 5 minutes by 325 traffic sensors in San Francisco
-    Bay Area.
-
-    The measurements are provided by California Transportation Agencies
-    (CalTrans) Performance Measurement System (PeMS). A benchmark dataset for
-    traffic forecasting as described in
-    `"Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic
-    Forecasting" <https://arxiv.org/abs/1707.01926>`_.
-
-    Dataset information:
-        + Time steps: 52128
-        + Nodes: 325
-        + Channels: 1
-        + Sampling rate: 5 minutes
-        + Missing values: 0.02%
-
-    Static attributes:
-        + :obj:`dist`: :math:`N \times N` matrix of node pairwise distances.
+    Bay Area. The measurements are provided by California Transportation
+    Agencies (CalTrans) Performance Measurement System (PeMS).
     """
 
     url = "https://drive.switch.ch/index.php/s/5NPcgGFAIJ4oFcT/download"
 
     similarity_options = {'distance', 'stcn'}
+    temporal_aggregation_options = {'mean', 'nearest'}
+    spatial_aggregation_options = None
 
-    def __init__(self, mask_zeros: bool = True, root=None, freq=None):
+    def __init__(self, root=None, freq=None):
         # Set root path
         self.root = root
-        self.mask_zeros = mask_zeros
         # load dataset
-        df, dist, mask = self.load(mask_zeros)
-        super().__init__(target=df,
+        df, dist, mask = self.load()
+        super().__init__(dataframe=df,
                          mask=mask,
+                         attributes=dict(dist=dist),
                          freq=freq,
                          similarity_score="distance",
                          temporal_aggregation="nearest",
                          name="PemsBay")
-        self.add_covariate('dist', dist, pattern='n n')
 
     @property
     def raw_file_names(self):
@@ -56,7 +44,7 @@ class PemsBay(DatetimeDataset):
 
     @property
     def required_file_names(self):
-        return ['pems_bay.h5', 'pems_bay_dist.npy', 'locations.csv']
+        return ['pems_bay.h5', 'pems_bay_dist.npy']
 
     def download(self) -> None:
         path = download_url(self.url, self.root_dir)
@@ -69,9 +57,6 @@ class PemsBay(DatetimeDataset):
         path = os.path.join(self.root_dir, 'pems_bay.h5')
         ids = list(pd.read_hdf(path).columns)
         self.build_distance_matrix(ids)
-        # Rename locations file
-        os.rename(os.path.join(self.root_dir, 'sensor_locations_bay.csv'),
-                  os.path.join(self.root_dir, 'locations.csv'))
         # Remove raw data
         self.clean_downloads()
 
@@ -80,21 +65,20 @@ class PemsBay(DatetimeDataset):
         # load traffic data
         traffic_path = os.path.join(self.root_dir, 'pems_bay.h5')
         df = pd.read_hdf(traffic_path)
-        # add missing values (index is sorted)
-        date_range = pd.date_range(df.index[0], df.index[-1], freq='5T')
+        # add missing values
+        datetime_idx = sorted(df.index)
+        date_range = pd.date_range(datetime_idx[0], datetime_idx[-1], freq='5T')
         df = df.reindex(index=date_range)
         # load distance matrix
         path = os.path.join(self.root_dir, 'pems_bay_dist.npy')
         dist = np.load(path)
         return df.astype('float32'), dist
 
-    def load(self, mask_zeros: bool = True):
+    def load(self):
         df, dist = self.load_raw()
         mask = ~np.isnan(df.values)
-        if mask_zeros:
-            mask &= df.values != 0
         df.fillna(method='ffill', axis=0, inplace=True)
-        return df, dist, mask
+        return df, dist, mask.astype('uint8')
 
     def build_distance_matrix(self, ids):
         logger.info('Building distance matrix...')
@@ -123,3 +107,11 @@ class PemsBay(DatetimeDataset):
         elif method == 'stcn':
             sigma = 10
             return gaussian_kernel(self.dist, sigma)
+
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
+    dataset = PemsBay()
+    plt.imshow(dataset.mask, aspect='auto')
+    plt.show()

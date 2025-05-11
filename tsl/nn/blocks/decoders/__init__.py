@@ -9,7 +9,7 @@ __all__ = [
     'GCNDecoder',
     'LinearReadout',
     'MLPDecoder',
-    'MultiHorizonMLPDecoder',
+    'MultiHorizonMLPDecoder'
 ]
 
 classes = __all__

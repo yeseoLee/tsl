@@ -1,11 +1,9 @@
 from .dataset import Dataset
-from .datetime_dataset import DatetimeDataset
-from .tabular_dataset import TabularDataset
+from .pd_dataset import PandasDataset
 
 __all__ = [
     'Dataset',
-    'TabularDataset',
-    'DatetimeDataset',
+    'PandasDataset'
 ]
 
 classes = __all__
